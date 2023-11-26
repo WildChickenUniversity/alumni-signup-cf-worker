@@ -1,32 +1,49 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
+  EMAIL_FIB: KVNamespace;
+  account_id: string;
+  API_TOKEN: string;
 }
 
-export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return new Response('Hello World!');
-	},
+const handler: ExportedHandler<Env> = {
+  async fetch(request: Request, env: Env) {
+    if (request.method !== "POST") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    const requestData = await request.json();
+    // @ts-ignore
+    const key = requestData.username;
+    // @ts-ignore
+    const value = requestData.email;
+
+    let responseMessage = "";
+    let statusCode = 200;
+
+    // Check if the key already exists in the KV store
+    const existingValue = await env.EMAIL_FIB.get(key);
+    if (existingValue === null) {
+      await env.EMAIL_FIB.put(key, value);
+      responseMessage = "Entry added to the KV store";
+    } else {
+      responseMessage = "Entry already exists";
+      statusCode = 409;
+    }
+
+    const outboundURL = `https://api.cloudflare.com/client/v4/accounts/${env.account_id}/email/routing/addresses`; 
+  
+    const outboundResponse = await fetch(outboundURL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.API_TOKEN}`
+      },
+      body: JSON.stringify({
+        email: `${value}`,
+      }),
+    });
+
+    return new Response(responseMessage, { status: statusCode });
+  },
 };
+
+export default handler;
